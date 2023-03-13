@@ -70,10 +70,6 @@ const {
   getAllRepresentatives,
 } = require("./api/representative");
 const { Sentry } = require("./sentry");
-const {
-  getRaiblocksMCInfo,
-  getRaiblocksMCLeaderboards,
-} = require("./cron/raiblocksMCStats");
 const { isValidAccountAddress } = require("./utils");
 
 const app = express();
@@ -130,10 +126,9 @@ app.get("/api/delegators", async (req, res) => {
 
 app.get("/api/transaction-filters", async (req, res) => {
   const { account, filters } = req.query;
+  const { sum, data } = await getHistoryFilters({ account, filters });
 
-  const data = await getHistoryFilters({ account, filters });
-
-  res.send(data);
+  res.send({ sum, data });
 });
 
 app.get("/api/large-transactions", async (req, res) => {
@@ -293,24 +288,6 @@ app.post("/api/nanoquakejs/register", async (req, res, next) => {
     });
     const json = await response.json();
     res.send(json);
-  } catch (err) {
-    next(err);
-  }
-});
-
-app.get("/api/raiblocksmc/info", async (req, res, next) => {
-  try {
-    const data = await getRaiblocksMCInfo();
-    res.send(data);
-  } catch (err) {
-    next(err);
-  }
-});
-
-app.get("/api/raiblocksmc/leaderboards", async (req, res, next) => {
-  try {
-    const data = await getRaiblocksMCLeaderboards();
-    res.send(data);
   } catch (err) {
     next(err);
   }
