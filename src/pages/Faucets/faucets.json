@@ -15,11 +15,6 @@
     "link": "https://www.freenanofaucet.com"
   },
   {
-    "alias": "Apollo Faucet",
-    "account": "nano_1tyd79peyzk4bs5ok1enb633dqsrxou91k7y4zzo1oegw4s75bokmj1pey4s",
-    "link": "https://twitter.com/ApolloNano/status/1365520666137481220"
-  },
-  {
     "alias": "LuckyNano",
     "account": "nano_1oenixj4qtpfcembga9kqwggkb87wooicfy5df8nhdywrjrrqxk7or4gz15b",
     "link": "https://luckynano.com"
@@ -35,11 +30,6 @@
     "link": "https://nanodrop.io"
   },
   {
-    "alias": "TryNano",
-    "account": "nano_3fb56gt1896wmzfrs78oowdjwed9arm1mugtg48eupewfnuq4io1gfjors5j",
-    "link": "https://www.trynano.io"
-  },
-  {
     "alias": "Prussia's Nano Faucet",
     "account": "nano_3346kkobb11qqpo17imgiybmwrgibr7yi34mwn5j6uywyke8f7fnfp94uyps",
     "link": "https://faucet.prussia.dev/nano"
@@ -50,19 +40,18 @@
     "link": "https://faucetqueen.repl.co"
   },
   {
-    "alias": "K3i's Free Nano Faucet",
-    "account": "nano_1g81pd84wnr3aiumt466xd1kopsfouzf1cwi1phqxdrkxaua9t7juzrg3i35",
-    "link": "https://nanofaucet.online"
-  },
-  {
     "alias": "i can haz nano",
     "account": "nano_1monkecrqoqr6j6qzhtd9i8x49ujdnoqt7ramt9jmhd543icsrx5accoqtd5",
     "link": "https://icanhaznano.monke42.tk"
   },
   {
     "alias": "getnano.ovh Faucet",
-    "account": "nano_18e4hwxk48kfy9kjc81hz494z68xa9u5863ain7jwyorqj6tjwhxibx4rzqu",
+    "account": "nano_3getnanons1aaqo5itbm8wdbzhtsp7tctd6p6qa7axwff7ocemzs3w381kfy",
     "link": "https://getnano.ovh"
+  },
+  {
+    "alias": "Solar Nano Faucet",
+    "account": "nano_3wbisaa5xw83u9bhciqnp5odwq1ihnjjtt48m6jrt6zdawpztwggse714cch",
+    "link": "https://solarnanofaucet.space/faucet"
   }
-  
 ]

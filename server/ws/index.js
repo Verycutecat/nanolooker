@@ -1,11 +1,9 @@
 const WS = require("ws");
 const BigNumber = require("bignumber.js");
-const ReconnectingWebSocket = require("reconnecting-websocket");
+const { WsReconnect } = require("websocket-reconnect");
 const { Sentry } = require("../sentry");
+const db = require("../client/mongo");
 const {
-  MONGO_URL,
-  MONGO_DB,
-  MONGO_OPTIONS,
   TOTAL_CONFIRMATIONS_COLLECTION,
   TOTAL_VOLUME_COLLECTION,
   LARGE_TRANSACTIONS,
@@ -15,36 +13,14 @@ const {
 const UPDATE_CACHE_INTERVAL = 10000;
 
 let updateDbInterval = null;
-
-const { MongoClient } = require("mongodb");
-
-let db;
-try {
-  MongoClient.connect(MONGO_URL, MONGO_OPTIONS, (err, client) => {
-    if (err) {
-      throw err;
-    }
-    db = client.db(MONGO_DB);
-  });
-} catch (err) {
-  console.log("Error", err);
-  Sentry.captureException(err);
-}
-
 let accumulatedConfirmations = 0;
 let accumulatedVolume = 0;
 let accumulatedLargeTransactionHashes = [];
 
 // https://github.com/cryptocode/nano-websocket-sample-nodejs/blob/master/index.js
-const ws = new ReconnectingWebSocket("wss://www.nanolooker.com/ws", [], {
-  WebSocket: WS,
-  connectionTimeout: 10000,
-  maxRetries: 100000,
-  maxReconnectionDelay: 2000,
-  minReconnectionDelay: 10,
-});
-
-ws.onopen = () => {
+const ws = new WsReconnect({ reconnectDelay: 5000 });
+ws.open(`wss://www.nanolooker.com/ws:${process.env.WS_PORT}`);
+ws.on("open", () => {
   console.log("WS OPENED");
   const subscription = {
     action: "subscribe",
@@ -56,22 +32,33 @@ ws.onopen = () => {
   ws.send(JSON.stringify(subscription));
 
   updateDbInterval = setInterval(updateDb, UPDATE_CACHE_INTERVAL);
-};
+});
 
-ws.onclose = () => {
+ws.on("close", () => {
   console.log("WS close");
   clearInterval(updateDbInterval);
   updateDb();
-};
+});
 
-ws.onerror = () => {
-  console.log("WS ERROR");
+ws.on("error", err => {
+  console.log("WS ERROR", err);
   clearInterval(updateDbInterval);
   updateDb();
-};
+});
 
 ws.onmessage = msg => {
+  if (Buffer.isBuffer(msg)) {
+    const buffer = Buffer.from(msg, "hex");
+    const jsonString = buffer?.toString("utf-8");
+
+    msg = {
+      data: jsonString,
+    };
+
+  }
+
   const { topic, message } = JSON.parse(msg.data);
+
   const {
     amount,
     block: { subtype },
@@ -89,19 +76,21 @@ ws.onmessage = msg => {
 
     // Skip accumulating dust amounts
     if (["send", "receive"].includes(subtype) && amount.length >= 25) {
-      accumulatedVolume = new BigNumber(amount)
-        .plus(accumulatedVolume)
-        .toNumber();
+      accumulatedVolume = new BigNumber(amount).plus(accumulatedVolume).toNumber();
     }
   }
 };
 
-function updateDb() {
-  if (!db) return;
-
+async function updateDb() {
   try {
+    const database = await db.getDatabase();
+
+    if (!database) {
+      throw new Error("Mongo unavailable for updateDb");
+    }
+
     if (accumulatedLargeTransactionHashes.length) {
-      db.collection(LARGE_TRANSACTIONS).insertOne({
+      database.collection(LARGE_TRANSACTIONS).insertOne({
         value: accumulatedLargeTransactionHashes,
         createdAt: new Date(),
       });
@@ -109,11 +98,11 @@ function updateDb() {
     }
 
     if (accumulatedConfirmations) {
-      db.collection(TOTAL_CONFIRMATIONS_COLLECTION).insertOne({
+      database.collection(TOTAL_CONFIRMATIONS_COLLECTION).insertOne({
         value: accumulatedConfirmations,
         createdAt: new Date(),
       });
-      db.collection(CONFIRMATIONS_PER_SECOND).insertOne({
+      database.collection(CONFIRMATIONS_PER_SECOND).insertOne({
         value: accumulatedConfirmations,
         createdAt: new Date(),
       });
@@ -121,14 +110,13 @@ function updateDb() {
     }
 
     if (accumulatedVolume) {
-      db.collection(TOTAL_VOLUME_COLLECTION).insertOne({
+      database.collection(TOTAL_VOLUME_COLLECTION).insertOne({
         value: accumulatedVolume,
         createdAt: new Date(),
       });
       accumulatedVolume = 0;
     }
   } catch (err) {
-    console.log("Error", err);
     Sentry.captureException(err);
   }
 }

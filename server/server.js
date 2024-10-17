@@ -1,4 +1,8 @@
 require("dotenv").config();
+const db = require("./client/mongo");
+
+db.connect();
+
 require("./client/redis");
 require("./cron/marketCapRank");
 require("./cron/knownAccounts");
@@ -9,7 +13,8 @@ require("./cron/telemetry");
 require("./cron/ws");
 require("./cron/coingeckoStats");
 require("./cron/btcTransactionFees");
-require("./cron/nanotickerStats");
+require("./cron/nanotpsStats");
+require("./cron/nanospeed");
 require("./cron/nanobrowserquestStats");
 require("./cron/2minersStats");
 require("./cron/youtubePlaylist");
@@ -18,68 +23,59 @@ const { getDistributionData } = require("./cron/distribution");
 const { getExchangeBalances } = require("./cron/exchangeTracker");
 const express = require("express");
 const cors = require("cors");
-const fetch = require("node-fetch");
 const { rpc, allowedRpcMethods } = require("./rpc");
 const bodyParser = require("body-parser");
 const path = require("path");
 const { nodeCache } = require("./client/cache");
 const {
   TOTAL_CONFIRMATIONS_24H,
-  TOTAL_VOLUME_24H,
   TOTAL_CONFIRMATIONS_48H,
+  TOTAL_CONFIRMATIONS_7D,
+  TOTAL_CONFIRMATIONS_14D,
+  TOTAL_VOLUME_24H,
   TOTAL_VOLUME_48H,
+  TOTAL_VOLUME_7D,
+  TOTAL_VOLUME_14D,
   CONFIRMATIONS_PER_SECOND,
-  NANOTICKER_STATS,
-  NANOBROWSERQUEST_PLAYERS,
+  NANOBROWSERQUEST_ONLINE_PLAYERS,
   NANOBROWSERQUEST_LEADERBOARD,
+  NANOTPS_STATS,
+  NANOSPEED_STATS,
 } = require("./constants");
 const {
   getBtcTransactionFees,
   BITCOIN_TOTAL_TRANSACTION_FEES_24H,
+  BITCOIN_TOTAL_TRANSACTION_FEES_7D,
+  BITCOIN_TOTAL_TRANSACTION_FEES_14D,
   BITCOIN_TOTAL_TRANSACTION_FEES_48H,
 } = require("./api/btcTransactionFees");
 const { getYoutubePlaylist } = require("./api/youtubePlaylist");
-const {
-  getCoingeckoStats,
-  getCoingeckoMarketCapStats,
-} = require("./api/coingeckoStats");
+const { getCoingeckoStats, getCoingeckoMarketCapStats } = require("./api/coingeckoStats");
 const { get2MinersStats } = require("./api/2minersStats");
-const {
-  getDeveloperFundTransactions,
-} = require("./api/developerFundTransactions");
+const { getDeveloperFundTransactions } = require("./api/developerFundTransactions");
 const { getLargeTransactions } = require("./api/largeTransactions");
 const { getNodeStatus } = require("./api/nodeStatus");
-const {
-  getKnownAccounts,
-  getKnownAccountsBalance,
-} = require("./api/knownAccounts");
-const {
-  getDelegatorsPage,
-  getAllDelegatorsCount,
-} = require("./api/delegators");
+const { getKnownAccounts, getKnownAccountsBalance } = require("./api/knownAccounts");
+// const { getDelegatorsPage, getAllDelegatorsCount } = require("./api/delegators");
 const { getHistoryFilters } = require("./api/historyFilters");
 
-const { getRichListPage, getRichListAccount } = require("./api/richList");
+// const { getRichListPage, getRichListAccount } = require("./api/richList");
 const { getParticipant, getParticipantsPage } = require("./api/participants");
 const { getNodeLocations } = require("./api/nodeLocations");
 const { getNodeMonitors } = require("./api/nodeMonitors");
 const { getDelegatedEntity } = require("./api/delegatedEntity");
 const { getTelemetry } = require("./api/telemetry");
-const {
-  getRepresentative,
-  getAllRepresentatives,
-} = require("./api/representative");
-const { Sentry } = require("./sentry");
+const { getRepresentative, getAllRepresentatives } = require("./api/representative");
+
 const { isValidAccountAddress } = require("./utils");
+const { terminate } = require("./terminate");
 
 const app = express();
-
 app.use(
   cors({
     origin: true,
   }),
 );
-
 app.use(bodyParser.json());
 
 app.post("/api/rpc", async (req, res) => {
@@ -111,18 +107,17 @@ app.get("/api/distribution", (req, res) => {
 });
 
 // @TODO ADD getDelegators && getAllDelegators if req.account is specified
-app.get("/api/delegators", async (req, res) => {
-  let data;
-  const { account, page } = req.query;
+// app.get("/api/delegators", async (req, res) => {
+//   let data = [];
+//   const { account, page } = req.query;
+//   // if (isValidAccountAddress(account)) {
+//   //   data = await getDelegatorsPage({ account, page });
+//   // } else {
+//   //   data = await getAllDelegatorsCount();
+//   // }
 
-  if (isValidAccountAddress(account)) {
-    data = await getDelegatorsPage({ account, page });
-  } else {
-    data = await getAllDelegatorsCount();
-  }
-
-  res.send(data);
-});
+//   res.send(data);
+// });
 
 app.get("/api/transaction-filters", async (req, res) => {
   const { account, filters } = req.query;
@@ -151,24 +146,42 @@ app.get("/api/developer-fund/transactions", async (req, res) => {
 
 app.get("/api/market-statistics", async (req, res) => {
   const cachedConfirmations24h = nodeCache.get(TOTAL_CONFIRMATIONS_24H);
-  const cachedVolume24h = nodeCache.get(TOTAL_VOLUME_24H);
   const cachedConfirmations48h = nodeCache.get(TOTAL_CONFIRMATIONS_48H);
+  const cachedConfirmations7d = nodeCache.get(TOTAL_CONFIRMATIONS_7D);
+  const cachedConfirmations14d = nodeCache.get(TOTAL_CONFIRMATIONS_14D);
+  const cachedVolume24h = nodeCache.get(TOTAL_VOLUME_24H);
   const cachedVolume48h = nodeCache.get(TOTAL_VOLUME_48H);
+  const cachedVolume7d = nodeCache.get(TOTAL_VOLUME_7D);
+  const cachedVolume14d = nodeCache.get(TOTAL_VOLUME_14D);
+  const nanotpsStats = nodeCache.get(NANOTPS_STATS);
+  const nanoSpeedStats = nodeCache.get(NANOSPEED_STATS);
 
-  const { btcTransactionFees24h, btcTransactionFees48h } =
-    await getBtcTransactionFees();
+  const {
+    btcTransactionFees24h,
+    btcTransactionFees7d,
+    btcTransactionFees14d,
+    btcTransactionFees48h,
+  } = await getBtcTransactionFees();
   const { marketStats, priceStats } = await getCoingeckoStats({
     fiat: req.query.fiat,
+
     cryptocurrency: req.query.cryptocurrency,
   });
-
   res.send({
     [TOTAL_CONFIRMATIONS_24H]: cachedConfirmations24h,
-    [TOTAL_VOLUME_24H]: cachedVolume24h,
     [TOTAL_CONFIRMATIONS_48H]: cachedConfirmations48h,
+    [TOTAL_CONFIRMATIONS_7D]: cachedConfirmations7d,
+    [TOTAL_CONFIRMATIONS_14D]: cachedConfirmations14d,
+    [TOTAL_VOLUME_24H]: cachedVolume24h,
     [TOTAL_VOLUME_48H]: cachedVolume48h,
+    [TOTAL_VOLUME_7D]: cachedVolume7d,
+    [TOTAL_VOLUME_14D]: cachedVolume14d,
     [BITCOIN_TOTAL_TRANSACTION_FEES_24H]: btcTransactionFees24h,
+    [BITCOIN_TOTAL_TRANSACTION_FEES_7D]: btcTransactionFees7d,
+    [BITCOIN_TOTAL_TRANSACTION_FEES_14D]: btcTransactionFees14d,
     [BITCOIN_TOTAL_TRANSACTION_FEES_48H]: btcTransactionFees48h,
+    [NANOTPS_STATS]: nanotpsStats,
+    [NANOSPEED_STATS]: nanoSpeedStats,
     ...marketStats,
     priceStats: {
       ...{ bitcoin: { usd: 0 } },
@@ -222,9 +235,7 @@ app.get("/api/node-locations", async (req, res) => {
 app.get("/api/representative", async (req, res) => {
   const { account } = req.query;
 
-  const representative = account
-    ? await getRepresentative(account)
-    : getAllRepresentatives();
+  const representative = account ? await getRepresentative(account) : getAllRepresentatives();
 
   res.send(representative);
 });
@@ -242,13 +253,13 @@ app.get("/api/telemetry", async (req, res) => {
 });
 
 app.get("/api/rich-list", async (req, res) => {
-  const { page, account } = req.query;
-  let data;
-  if (page) {
-    data = await getRichListPage(page);
-  } else if (account) {
-    data = await getRichListAccount(account);
-  }
+  //   const { page, account } = req.query;
+  let data = [];
+  //   if (page) {
+  //     data = await getRichListPage(page);
+  //   } else if (account) {
+  //     data = await getRichListAccount(account);
+  //   }
 
   res.send(data);
 });
@@ -265,37 +276,37 @@ app.get("/api/participants", async (req, res) => {
   res.send(data);
 });
 
-app.get("/api/nanoquakejs/scores", async (req, res) => {
-  let json = {};
-  try {
-    const res = await fetch("https://rainstorm.city/nanoquake/scores");
-    json = await res.json();
-  } catch (err) {
-    Sentry.captureException(err);
-  }
+// app.get("/api/nanoquakejs/scores", async (req, res) => {
+//   let json = {};
+//   try {
+//     const res = await fetch("https://rainstorm.city/nanoquake/scores");
+//     json = await res.json();
+//   } catch (err) {
+//     Sentry.captureException(err);
+//   }
 
-  res.send(json);
-});
+//   res.send(json);
+// });
 
-app.post("/api/nanoquakejs/register", async (req, res, next) => {
-  try {
-    const response = await fetch("https://rainstorm.city/nanoquake/register", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(req.body),
-    });
-    const json = await response.json();
-    res.send(json);
-  } catch (err) {
-    next(err);
-  }
-});
+// app.post("/api/nanoquakejs/register", async (req, res, next) => {
+//   try {
+//     const response = await fetch("https://rainstorm.city/nanoquake/register", {
+//       method: "POST",
+//       headers: {
+//         "Content-Type": "application/json",
+//       },
+//       body: JSON.stringify(req.body),
+//     });
+//     const json = await response.json();
+//     res.send(json);
+//   } catch (err) {
+//     next(err);
+//   }
+// });
 
 app.get("/api/nanobrowserquest/players", async (req, res, next) => {
   try {
-    res.send(nodeCache.get(NANOBROWSERQUEST_PLAYERS) || {});
+    res.send(nodeCache.get(NANOBROWSERQUEST_ONLINE_PLAYERS) || {});
   } catch (err) {
     next(err);
   }
@@ -303,14 +314,10 @@ app.get("/api/nanobrowserquest/players", async (req, res, next) => {
 
 app.get("/api/nanobrowserquest/leaderboard", async (req, res, next) => {
   try {
-    res.send(nodeCache.get(NANOBROWSERQUEST_LEADERBOARD) || []);
+    res.send(nodeCache.get(NANOBROWSERQUEST_LEADERBOARD));
   } catch (err) {
     next(err);
   }
-});
-
-app.get("/api/nanoticker", async (req, res) => {
-  res.send(nodeCache.get(NANOTICKER_STATS) || {});
 });
 
 app.get("/api/youtube-playlist", async (req, res) => {
@@ -331,5 +338,11 @@ app.get("*", (req, res, next) => {
 
 const server = app.listen(process.env.SERVER_PORT);
 server.timeout = 20000;
+
+const exitHandler = terminate(server);
+process.on("uncaughtException", exitHandler(1, "Unexpected Error"));
+process.on("unhandledRejection", exitHandler(1, "Unhandled Promise"));
+process.on("SIGTERM", exitHandler(0, "SIGTERM"));
+process.on("SIGINT", exitHandler(0, "SIGINT"));
 
 console.log(`Server started on http://localhost:${process.env.SERVER_PORT}`);

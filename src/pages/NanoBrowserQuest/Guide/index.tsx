@@ -1,14 +1,18 @@
+import "./guide.css";
+
 import * as React from "react";
 import { Helmet } from "react-helmet";
 import { useTranslation } from "react-i18next";
-import { Card, Row, Col, Tooltip, Typography } from "antd";
 import ReactMarkdown from "react-markdown";
+
+import { Card, Col, Row, Tooltip, Typography } from "antd";
+import qs from "qs";
 import remarkGfm from "remark-gfm";
 
-import guide from "./guide.md";
-import { getItemAttributes } from "./utils";
+import Header from "./components/Header";
 
-import "./guide.css";
+import guide from "./guide.md";
+import { getItemAttributes, getItemClassFromBaseLevel, runeKind } from "./utils";
 
 const { Title } = Typography;
 
@@ -21,6 +25,18 @@ const NanoBrowserQuestGuidePage: React.FC = () => {
     fetch(guide)
       .then(response => response.text())
       .then(text => {
+        text = text.replace(/:rune([a-z]+):/gi, (match, capturedLetters: string) => {
+          //@ts-ignore
+          const rune = runeKind[capturedLetters];
+
+          const replacement = `![{"name": "${capturedLetters.toUpperCase()} Rune #${
+            rune.rank
+          }", "itemClass": "${getItemClassFromBaseLevel(rune.requirement)}", "requirement": "${
+            rune.requirement
+          }"}](https://nanobrowserquest.com/img/1/item-rune-${capturedLetters}.png)`;
+          return replacement;
+        });
+
         setMarkdown(text);
       });
   }, []);
@@ -40,17 +56,21 @@ const NanoBrowserQuestGuidePage: React.FC = () => {
                 fontSize: "12px",
               }}
             >
-              {t("common.by")} oldschooler &amp; running-coder
+              {t("common.by")} oldschooler, mika &amp; running-coder
             </span>
           </Title>
-          <Card size="small" bordered={false} className="guide">
+          <Card size="small" className="guide">
             <Row gutter={[12, 0]}>
               <Col xs={24}>
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
+                  renderers={{ heading: Header }}
                   components={{
                     //@ts-ignore
                     img: Image,
+                    h1: Header,
+                    h2: Header,
+                    h3: Header,
                   }}
                 >
                   {markdown}
@@ -67,27 +87,34 @@ const NanoBrowserQuestGuidePage: React.FC = () => {
 const Image: React.FC<HTMLImageElement> = ({ src, alt: rawAttributes }) => {
   let title;
   if (rawAttributes?.startsWith("{")) {
-    title = getItemAttributes(JSON.parse(rawAttributes));
+    try {
+      title = getItemAttributes(JSON.parse(rawAttributes));
+    } catch (err) {
+    }
 
     return (
-      <Tooltip
-        placement="right"
-        title={title}
-        overlayClassName="tooltip-nbq-item"
-      >
+      <Tooltip placement="right" title={title} overlayClassName="tooltip-nbq-item">
         <div
-          className="item-container"
+          className={`item-container ${src.includes("/1/") ? "small" : ""}`}
           style={{
             position: "relative",
-            backgroundImage: `url(${src}) `,
+            backgroundImage: `url(${src})`,
+
+            // ...(!isNbqItemImage ? { width: 24, height: 24 } : null),
           }}
         />
       </Tooltip>
     );
+    // @NOTE non-item* images?
   } else {
+
+    const rawParsedQuery = qs.parse(src.split("?")[1], { ignoreQueryPrefix: true });
+
+    const parsedQuery = Object.assign(rawParsedQuery, { maxWidth: "100%", overflow: "hidden" });
+
     return (
-      <div style={{ padding: "6px" }}>
-        <img src={src} alt={rawAttributes} />
+      <div style={{ padding: "6px", display: "inline-block" }}>
+        <img src={src} alt={rawAttributes} style={parsedQuery} />
       </div>
     );
   }

@@ -1,42 +1,10 @@
-const MongoClient = require("mongodb").MongoClient;
 const BigNumber = require("bignumber.js");
 const { rpc } = require("../rpc");
+const db = require("../client/mongo");
 const { Sentry } = require("../sentry");
-const {
-  MONGO_URL,
-  MONGO_OPTIONS,
-  MONGO_DB,
-  TRANSACTION_COLLECTION,
-} = require("../constants");
+const { TRANSACTION_COLLECTION } = require("../constants");
 const { getKnownAccounts } = require("./knownAccounts");
 const { isValidAccountAddress, raiToRaw, toBoolean } = require("../utils");
-
-let db;
-let mongoClient;
-
-const connect = async () =>
-  await new Promise((resolve, reject) => {
-    try {
-      MongoClient.connect(MONGO_URL, MONGO_OPTIONS, (err, client) => {
-        if (err) {
-          throw err;
-        }
-        mongoClient = client;
-        db = client.db(MONGO_DB);
-        db.collection(TRANSACTION_COLLECTION).createIndexes({
-          account_origin: 1,
-          height: 1,
-          createdAt: 1,
-        });
-
-        resolve();
-      });
-    } catch (err) {
-      console.log("Error", err);
-      Sentry.captureException(err);
-      reject();
-    }
-  });
 
 const getIsAccountFilterable = async account => {
   let isFilterable = false;
@@ -56,7 +24,6 @@ const getIsAccountFilterable = async account => {
       isFilterable = true;
     }
   } catch (err) {
-    console.log("Error", err);
     Sentry.captureException(err);
   }
 
@@ -71,9 +38,13 @@ const getHistoryFilters = async ({ account, filters: rawFilters }) => {
     if (!(await getIsAccountFilterable(account))) {
       return data;
     }
-    await connect();
+    const database = await db.getDatabase();
 
-    const highestBlock = await db
+    if (!database) {
+      throw new Error("Mongo unavailable for getHistoryFilters");
+    }
+
+    const highestBlock = await database
       .collection(TRANSACTION_COLLECTION)
       .find({
         account_origin: account,
@@ -87,8 +58,7 @@ const getHistoryFilters = async ({ account, filters: rawFilters }) => {
       count: "-1",
       raw: true,
       reverse: true,
-      offset:
-        highestBlock && highestBlock[0] ? highestBlock[0].height : undefined,
+      offset: highestBlock && highestBlock[0] ? highestBlock[0].height : undefined,
     });
 
     if (history && history.length) {
@@ -116,7 +86,7 @@ const getHistoryFilters = async ({ account, filters: rawFilters }) => {
         }),
       );
 
-      await db.collection(TRANSACTION_COLLECTION).insertMany(filteredHistory, {
+      await database.collection(TRANSACTION_COLLECTION).insertMany(filteredHistory, {
         ordered: true,
       });
     }
@@ -160,7 +130,7 @@ const getHistoryFilters = async ({ account, filters: rawFilters }) => {
       ...rest,
     };
 
-    data = await db
+    data = await database
       .collection(TRANSACTION_COLLECTION)
       .find({
         account_origin: account,
@@ -168,12 +138,8 @@ const getHistoryFilters = async ({ account, filters: rawFilters }) => {
         ...(filters.minAmount || filters.maxAmount
           ? {
               amount: {
-                ...(filters.minAmount
-                  ? { $gte: raiToRaw(filters.minAmount) }
-                  : null),
-                ...(filters.maxAmount
-                  ? { $lte: raiToRaw(filters.maxAmount) }
-                  : null),
+                ...(filters.minAmount ? { $gte: raiToRaw(filters.minAmount) } : null),
+                ...(filters.maxAmount ? { $lte: raiToRaw(filters.maxAmount) } : null),
               },
             }
           : null),
@@ -188,12 +154,8 @@ const getHistoryFilters = async ({ account, filters: rawFilters }) => {
         ...(filters.dateRange.length
           ? {
               local_timestamp: {
-                ...(filters.dateRange[0]
-                  ? { $gte: filters.dateRange[0] }
-                  : null),
-                ...(filters.dateRange[1]
-                  ? { $lte: filters.dateRange[1] }
-                  : null),
+                ...(filters.dateRange[0] ? { $gte: filters.dateRange[0] } : null),
+                ...(filters.dateRange[1] ? { $lte: filters.dateRange[1] } : null),
               },
             }
           : null),
@@ -215,9 +177,7 @@ const getHistoryFilters = async ({ account, filters: rawFilters }) => {
                   : { $nin: filters.receiver },
             }
           : null),
-        ...(!filters.includeNoTimestamp
-          ? { local_timestamp: { $ne: 0 } }
-          : null),
+        ...(!filters.includeNoTimestamp ? { local_timestamp: { $ne: 0 } } : null),
         ...(filters.excludeUnknownAccounts
           ? {
               account: {
@@ -226,19 +186,17 @@ const getHistoryFilters = async ({ account, filters: rawFilters }) => {
             }
           : null),
       })
-      .sort({ height: toBoolean(rawFilters.reverse) ? 1 : -1 })
+      .sort({ height: rawFilters && toBoolean(rawFilters.reverse) ? 1 : -1 })
       .toArray();
     // .explain();
 
-    mongoClient.close();
-
-    if (toBoolean(rawFilters.sum)) {
+    if (rawFilters && toBoolean(rawFilters.sum)) {
       data.forEach(({ amount }) => {
         sum = new BigNumber(sum).plus(amount || 0).toNumber();
       });
     }
   } catch (err) {
-    Sentry.captureException(err);
+    Sentry.captureException(err, { extra: { account, rawFilters } });
   }
 
   return { sum, data };

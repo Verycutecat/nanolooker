@@ -1,12 +1,14 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
+
 import { Button, Space, Typography } from "antd";
-import { Theme, PreferencesContext } from "api/contexts/Preferences";
+
+import { PreferencesContext, Theme } from "api/contexts/Preferences";
 import Search from "components/Search";
 import { Tracker } from "components/utils/analytics";
 
-const { Text, Title } = Typography;
+const { Title } = Typography;
 
 const Banner: React.FC = () => {
   const { t } = useTranslation();
@@ -65,11 +67,11 @@ const Banner: React.FC = () => {
           <Button ghost>{t("menu.whatIsNano")}</Button>
         </Link> */}
 
-        <Button
+        {/* <Button
           ghost
           href="https://pasino.com/?user_id=18828"
           target="_blank"
-          style={{ padding: "0 10px" }}
+          style={{ padding: "0 10px", display: "flex" }}
           onClick={() => {
             Tracker.ga4?.gtag("event", "SponsorPasino");
           }}
@@ -106,7 +108,7 @@ const Banner: React.FC = () => {
               Pasino
             </Text>
           </div>
-        </Button>
+        </Button> */}
 
         <Link to={"/nanobrowserquest"}>
           <Button
@@ -128,7 +130,7 @@ const Banner: React.FC = () => {
           </Button>
         </Link>
 
-        <Link to={"/nanoquakejs"}>
+        {/* <Link to={"/nanoquakejs"}>
           <Button ghost>
             <img
               alt="NanoQuakeJS"
@@ -140,7 +142,7 @@ const Banner: React.FC = () => {
             />{" "}
             NanoQuakeJS
           </Button>
-        </Link>
+        </Link> */}
 
         {/* <Button
           ghost

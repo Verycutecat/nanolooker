@@ -23,11 +23,13 @@ const getDeveloperFundTransactions = async () => {
             count: "-1",
           });
 
-          const history = res.history
-            .map(({ type, height, ...rest }) =>
-              type === "send" ? { origin: account, type, ...rest } : undefined,
-            )
-            .filter(Boolean);
+          const { history = [] } =
+            res ||
+            []
+              .map(({ type, height, ...rest }) =>
+                type === "send" ? { origin: account, type, ...rest } : undefined,
+              )
+              .filter(Boolean);
 
           accountsHistory = accountsHistory.concat(history);
 
@@ -42,21 +44,13 @@ const getDeveloperFundTransactions = async () => {
       accountsHistoryPromises.push(promise);
     });
 
-    developerFundTransactions = await Promise.all(accountsHistoryPromises).then(
-      () => {
-        developerFundTransactions = reverse(
-          sortBy(accountsHistory, ["local_timestamp"]),
-        );
+    developerFundTransactions = await Promise.all(accountsHistoryPromises).then(() => {
+      developerFundTransactions = reverse(sortBy(accountsHistory, ["local_timestamp"]));
 
-        nodeCache.set(
-          DEVELOPER_FUND_TRANSACTIONS,
-          developerFundTransactions,
-          EXPIRE_1H,
-        );
+      nodeCache.set(DEVELOPER_FUND_TRANSACTIONS, developerFundTransactions, EXPIRE_1H);
 
-        return developerFundTransactions;
-      },
-    );
+      return developerFundTransactions;
+    });
   }
 
   return { developerFundTransactions };

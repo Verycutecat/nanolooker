@@ -1,4 +1,3 @@
-const MongoClient = require("mongodb").MongoClient;
 const { promises, existsSync } = require("fs");
 const fse = require("fs-extra");
 const { join } = require("path");
@@ -7,10 +6,8 @@ const cron = require("node-cron");
 const BigNumber = require("bignumber.js");
 const { Sentry } = require("../sentry");
 const { nodeCache } = require("../client/cache");
+const db = require("../client/mongo");
 const {
-  MONGO_URL,
-  MONGO_OPTIONS,
-  MONGO_DB,
   COINGECKO_MARKET_STATS,
   COINGECKO_MARKET_CAP_STATS,
   COINGECKO_ALL_PRICE_STATS,
@@ -32,30 +29,6 @@ const PUBLIC_ROOT_PATH = join(__dirname, "..", "..");
 const LOGO_PATH = join(PUBLIC_ROOT_PATH, "public/cryptocurrencies/logo");
 const DIST_LOGO_PATH = join(PUBLIC_ROOT_PATH, "dist/cryptocurrencies/logo");
 
-let db;
-let mongoClient;
-
-const connect = async () =>
-  await new Promise((resolve, reject) => {
-    try {
-      MongoClient.connect(MONGO_URL, MONGO_OPTIONS, (err, client) => {
-        if (err) {
-          throw err;
-        }
-        mongoClient = client;
-        db = client.db(MONGO_DB);
-        db.collection(MARKET_CAP_STATS_COLLECTION).createIndex({
-          createdAt: 1,
-        });
-        resolve();
-      });
-    } catch (err) {
-      console.log("Error", err);
-      Sentry.captureException(err);
-      reject();
-    }
-  });
-
 const getPriceStats = async fiats => {
   let res;
   try {
@@ -73,6 +46,8 @@ const getPriceStats = async fiats => {
         bitcoin: json.bitcoin,
         nano: json.nano,
       });
+
+      await sleep(35_000);
     }
   } catch (err) {
     console.log("Error", err);
@@ -114,6 +89,8 @@ const getMarketStats = async fiats => {
       };
 
       nodeCache.set(`${COINGECKO_MARKET_STATS}-${fiat}`, marketStats);
+
+      await sleep(30_000);
     }
   } catch (err) {
     // rate limited
@@ -122,13 +99,18 @@ const getMarketStats = async fiats => {
 };
 
 const getMarketCapStats = async () => {
-  await connect();
   await mkdir(LOGO_PATH, { recursive: true });
 
   const ids = [];
   const top = process.env.NODE_ENV === "production" ? 200 : 10;
 
   try {
+    const database = await db.getDatabase();
+
+    if (!database) {
+      throw new Error("Mongo unavailable for getMarketCapStats");
+    }
+
     let res = await fetch(
       `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${top}&page=1&sparkline=false&market_data=false`,
     );
@@ -150,6 +132,12 @@ const getMarketCapStats = async () => {
         );
 
         try {
+          const json = await res.json();
+
+          if (json.status && json.status.error_code) {
+            throw new Error("Rate limited");
+          }
+
           const {
             market_data: {
               market_cap: { usd: marketCap },
@@ -162,7 +150,7 @@ const getMarketCapStats = async () => {
               reddit_subscribers: redditSubscribers,
             },
             developer_data: { stars: githubStars },
-          } = await res.json();
+          } = json;
 
           const cryptocurrency = {
             id,
@@ -198,7 +186,7 @@ const getMarketCapStats = async () => {
               : null,
           };
 
-          await db.collection(MARKET_CAP_STATS_COLLECTION).findOneAndUpdate(
+          await database.collection(MARKET_CAP_STATS_COLLECTION).findOneAndUpdate(
             {
               id,
             },
@@ -223,35 +211,34 @@ const getMarketCapStats = async () => {
           console.log(`Fetched ${i}: ${id}`);
         } catch (err1) {
           console.log(`Err Fetching ${i}: ${id}`, err1);
-          Sentry.captureException(err1);
         }
 
         // CoinGecko rate limit is 10 calls per seconds
         if (i && !(i % 10)) {
-          await sleep(15000);
+          await sleep(35_000);
         } else {
-          await sleep(process.env.NODE_ENV === "production" ? 3000 : 150);
+          await sleep(process.env.NODE_ENV === "production" ? 25_000 : 150);
         }
       }
 
       // Delete entries that are gone from the top 150
-      await db.collection(MARKET_CAP_STATS_COLLECTION).deleteMany({
+      await database.collection(MARKET_CAP_STATS_COLLECTION).deleteMany({
         id: { $nin: ids },
       });
+    } else {
+      console.log(`Failed to get top ${top} cryptocurrencies`, cryptocurrencies);
+      await sleep(20_000);
+
+      getMarketCapStats();
+      return;
     }
 
-    const marketCapStats = await db
-      .collection(MARKET_CAP_STATS_COLLECTION)
-      .find()
-      .toArray();
+    const marketCapStats = await database.collection(MARKET_CAP_STATS_COLLECTION).find().toArray();
 
     nodeCache.set(COINGECKO_MARKET_CAP_STATS, marketCapStats);
 
     fse.copy(LOGO_PATH, DIST_LOGO_PATH);
-
-    mongoClient.close();
   } catch (err) {
-    console.log("Error", err);
     Sentry.captureException(err);
   }
 };
@@ -262,15 +249,15 @@ cron.schedule("0 1 * * *", async () => {
   getMarketCapStats();
 });
 
-// Every 30 seconds
-cron.schedule("*/30 * * * * *", async () => {
+// Every 2 minute
+cron.schedule("*/2 * * * *", async () => {
   getPriceStats(defaultFiats);
   getMarketStats(defaultFiats);
 });
 
-// https://crontab.guru/#*/2_*_*_*_*
-// At every 2nd minute.
-cron.schedule("*/2 * * * *", async () => {
+// https://crontab.guru/#*/10_*_*_*_*
+// At every 10nd minute.
+cron.schedule("*/10 * * * *", async () => {
   getPriceStats(secondaryFiats);
   getMarketStats(secondaryFiats);
 });

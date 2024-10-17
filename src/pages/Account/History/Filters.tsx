@@ -1,5 +1,7 @@
 import * as React from "react";
-import { useTranslation, Trans } from "react-i18next";
+import { Controller, useForm } from "react-hook-form";
+import { Trans, useTranslation } from "react-i18next";
+
 import {
   Button,
   Card,
@@ -14,18 +16,18 @@ import {
   Typography,
 } from "antd";
 import moment from "moment";
-import { useForm, Controller } from "react-hook-form";
 
-import { TwoToneColors } from "components/utils";
-import { Theme, PreferencesContext } from "api/contexts/Preferences";
 import { AccountHistoryFilterContext } from "api/contexts/AccountHistoryFilter";
+import { PreferencesContext, Theme } from "api/contexts/Preferences";
 import QuestionCircle from "components/QuestionCircle";
+import { getAccountAddressFromText, isValidAccountAddress } from "components/utils";
+import { TwoToneColors } from "components/utils";
 
 import Export from "./Export";
 
-import type { Subtype } from "types/transaction";
 import type { RangePickerProps } from "antd/es/date-picker";
 import type { Moment } from "moment";
+import type { Subtype } from "types/transaction";
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -34,9 +36,7 @@ const { Option } = Select;
 const TagRender = (props: any) => {
   const { label, value, closable, onClose } = props;
   const { theme } = React.useContext(PreferencesContext);
-  const themeColor = `${value.toUpperCase()}${
-    theme === Theme.DARK ? "_DARK" : ""
-  }`;
+  const themeColor = `${value.toUpperCase()}${theme === Theme.DARK ? "_DARK" : ""}`;
 
   const onPreventMouseDown = (event: React.MouseEvent<HTMLSpanElement>) => {
     event.preventDefault();
@@ -78,9 +78,7 @@ export interface HistoryFilters {
 
 const Filters: React.FC = () => {
   const { t } = useTranslation();
-  const { isLoading, setFilters } = React.useContext(
-    AccountHistoryFilterContext,
-  );
+  const { isLoading, setFilters } = React.useContext(AccountHistoryFilterContext);
 
   const [options] = React.useState(
     [
@@ -129,8 +127,7 @@ const Filters: React.FC = () => {
     const { dateRange, ...rest } = rawFilters;
 
     const filters = {
-      dateRange:
-        dateRange?.map((date: Moment | null) => date?.format("x")) || null,
+      dateRange: dateRange?.map((date: Moment | null) => date?.format("x")) || null,
       ...rest,
     };
 
@@ -189,6 +186,19 @@ const Filters: React.FC = () => {
                     {...field}
                     style={{ flexGrow: 1 }}
                     placeholder="nano_"
+                    onPaste={e => {
+                      e.preventDefault();
+
+                      // @ts-ignore
+                      const paste = (e.clipboardData || window.clipboardData).getData("text");
+
+                      const account = getAccountAddressFromText(paste);
+                      if (isValidAccountAddress(account)) {
+                        setValue("sender", account);
+                      }
+
+                      setValue("sender", account);
+                    }}
                   />
                 )}
                 control={control}
@@ -206,14 +216,8 @@ const Filters: React.FC = () => {
                 <RangePicker
                   {...field}
                   style={{ width: "100%" }}
-                  defaultPickerValue={[
-                    moment().add(-1, "month"),
-                    moment().add(-1, "month"),
-                  ]}
-                  placeholder={[
-                    t("pages.account.startDate"),
-                    t("pages.account.endDate"),
-                  ]}
+                  defaultValue={[moment().add(-1, "month"), moment().add(-1, "month")]}
+                  placeholder={[t("pages.account.startDate"), t("pages.account.endDate")]}
                   allowEmpty={[true, true]}
                   disabledDate={disabledDate}
                 />
@@ -243,8 +247,20 @@ const Filters: React.FC = () => {
                 render={({ field }) => (
                   <Input
                     {...field}
+                    name="receiver"
                     style={{ flexGrow: 1 }}
                     placeholder="nano_"
+                    onPaste={e => {
+                      e.preventDefault();
+
+                      // @ts-ignore
+                      const paste = (e.clipboardData || window.clipboardData).getData("text");
+
+                      const account = getAccountAddressFromText(paste);
+                      if (isValidAccountAddress(account)) {
+                        setValue("receiver", account);
+                      }
+                    }}
                   />
                 )}
                 control={control}
@@ -261,7 +277,7 @@ const Filters: React.FC = () => {
                   <Input
                     {...field}
                     style={{ width: "44%" }}
-                    placeholder={t("pages.account.minimum")}
+                    placeholder={t<string>("pages.account.minimum")}
                     type="number"
                     min="0"
                   />
@@ -288,7 +304,7 @@ const Filters: React.FC = () => {
                     style={{
                       width: "45%",
                     }}
-                    placeholder={t("pages.account.minimum")}
+                    placeholder={t<string>("pages.account.minimum")}
                     type="number"
                     min="0"
                   />
@@ -306,7 +322,7 @@ const Filters: React.FC = () => {
                   <Input
                     {...field}
                     style={{ width: "44%" }}
-                    placeholder={t("pages.account.from")}
+                    placeholder={t<string>("pages.account.from")}
                     type="number"
                     step={1}
                     min="0"
@@ -334,7 +350,7 @@ const Filters: React.FC = () => {
                     style={{
                       width: "45%",
                     }}
-                    placeholder={t("pages.account.to")}
+                    placeholder={t<string>("pages.account.to")}
                     type="number"
                     step={1}
                     min="0"
@@ -358,10 +374,7 @@ const Filters: React.FC = () => {
               control={control}
               name="includeNoTimestamp"
             />
-            <Tooltip
-              placement="right"
-              title={t("tooltips.unknownTransactionDate")}
-            >
+            <Tooltip placement="right" title={t("tooltips.unknownTransactionDate")}>
               <QuestionCircle style={{ marginLeft: 0 }} />
             </Tooltip>
             <br />

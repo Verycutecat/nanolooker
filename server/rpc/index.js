@@ -1,12 +1,10 @@
 const fetch = require("node-fetch");
-const {
-  transformer: confirmation_quorum,
-} = require("./transformers/confirmationQuorum");
-const {
-  transformer: representatives,
-} = require("./transformers/representatives");
+const { transformer: confirmation_quorum } = require("./transformers/confirmationQuorum");
+const { transformer: representatives } = require("./transformers/representatives");
 const { nodeCache } = require("../client/cache");
 const { Sentry } = require("../sentry");
+
+const { EXPIRE_1H, EXPIRE_6H, EXPIRE_48H } = require("../constants");
 
 const transformers = {
   confirmation_quorum,
@@ -40,8 +38,8 @@ const cacheSettings = {
   account_info: 1,
   account_representative: 5,
   accounts_balances: 1,
-  active_difficulty: 1,
-  available_supply: 3600,
+  active_difficulty: EXPIRE_48H,
+  available_supply: EXPIRE_6H,
   block_count: 1,
   block_info: 1,
   blocks_info: 5,
@@ -50,11 +48,11 @@ const cacheSettings = {
   frontier_count: 5,
   peers: 5,
   pending: 5,
-  representatives: 5,
-  representatives_online: 5,
+  representatives: EXPIRE_1H,
+  representatives_online: EXPIRE_1H,
   stats: 5,
   uptime: 30,
-  version: 30,
+  version: EXPIRE_6H,
 };
 
 const limits = {

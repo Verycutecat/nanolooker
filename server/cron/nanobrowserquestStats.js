@@ -1,99 +1,86 @@
 const cron = require("node-cron");
-const redis = require("redis");
 const chunk = require("lodash/chunk");
-const { Sentry } = require("../sentry");
 const { nodeCache } = require("../client/cache");
+const { redisClient } = require("../client/redis");
+
 const {
-  NANOBROWSERQUEST_PLAYERS,
+  NANOBROWSERQUEST_ONLINE_PLAYERS,
   NANOBROWSERQUEST_LEADERBOARD,
+  EXPIRE_1H,
 } = require("../constants");
 
-const {
-  NBQ_REDIS_PORT,
-  NBQ_REDIS_HOST,
-  NBQ_REDIS_PASSWORD,
-  NBQ_REDIS_DB_INDEX,
-} = process.env;
-
-const client = redis.createClient(NBQ_REDIS_PORT, NBQ_REDIS_HOST, {
-  password: NBQ_REDIS_PASSWORD,
-});
-
-client.on("connect", function () {
-  client.select(NBQ_REDIS_DB_INDEX); // NBQ DB
-  console.log("Connected to Redis");
-
-  if (process.env.NODE_ENV === "production") {
-    getNanoBrowserQuestLeaderboard();
-  }
-});
-
-client.on("error", function (err) {
-  Sentry.captureException(err);
-});
+const { NBQ_REDIS_DB_INDEX } = process.env;
 
 const getNanoBrowserQuestPlayers = async () => {
-  let res;
-
-  try {
-    client.get("total_players", (error, playerCount) => {
-      nodeCache.set(NANOBROWSERQUEST_PLAYERS, { playerCount });
-    });
-  } catch (err) {
-    console.log("Error", err);
-    Sentry.captureException(err, { extra: { res } });
-  }
+  const playerCount = await redisClient.get("total_players");
+  nodeCache.set(NANOBROWSERQUEST_ONLINE_PLAYERS, { playerCount });
 };
 
 const getNanoBrowserQuestLeaderboard = async () => {
-  let res;
-  try {
-    let playersData = [];
-    const PER_PAGES = 500;
-    client.keys("u:*", async (_err, players) => {
-      const playersChunks = chunk(players, PER_PAGES);
+  await redisClient.select(NBQ_REDIS_DB_INDEX);
 
-      for (let i = 0; i < playersChunks.length; i++) {
-        if (playersChunks[i] === "u:running-coder") continue;
+  async function scanAllKeys(pattern = "*") {
+    let cursor = 0; // Initialize cursor as a number
+    let keys = [];
 
-        const rawPlayerData = await Promise.all(
-          playersChunks[i].map(
-            player =>
-              new Promise(resolve => {
-                client.hmget(
-                  player,
-                  "hash",
-                  "network",
-                  "exp",
-                  (_err, reply) => {
-                    const network = reply[1];
-                    const exp = parseInt(reply[2] || 0);
+    do {
+      // Await the SCAN operation with the current cursor
+      const result = await redisClient.scan(cursor, {
+        MATCH: pattern,
+        COUNT: 100,
+      });
 
-                    if (network === "ban" || !exp) {
-                      resolve(undefined);
-                    } else {
-                      resolve({
-                        player: player.replace("u:", ""),
-                        isCompleted: !!reply[0],
-                        network,
-                        exp: parseInt(reply[2] || 0),
-                      });
-                    }
-                  },
-                );
-              }),
-          ),
-        );
-
-        playersData = playersData.concat(rawPlayerData.filter(Boolean));
-      }
-
-      nodeCache.set(NANOBROWSERQUEST_LEADERBOARD, playersData);
-    });
-  } catch (err) {
-    console.log("Error", err);
-    Sentry.captureException(err, { extra: { res } });
+      cursor = result.cursor;
+      keys = keys.concat(result.keys.filter(key => key.startsWith("u:")));
+    } while (cursor !== 0);
+    return keys;
   }
+
+  let playersData = [];
+  const PER_PAGES = 500;
+  // Usage
+  // const players = (await findKeys("u:*")).filter(key => key.startsWith("u:"));
+
+  const players = await scanAllKeys(); //.filter(key => key.startsWith("u:"));
+  const playersChunks = chunk(players, PER_PAGES);
+
+  for (let i = 0; i < playersChunks.length; i++) {
+    const rawPlayerData = await Promise.all(
+      playersChunks[i].map(
+        player =>
+          new Promise(async resolve => {
+            const userKey = player;
+            let [hash, network, exp, gold, goldStash] = await redisClient
+              .multi()
+              .hGet(userKey, "hash")
+              .hGet(userKey, "network")
+              .hGet(userKey, "exp")
+              .hGet(userKey, "gold")
+              .hGet(userKey, "goldStash")
+              .exec();
+
+            exp = Number(exp || 0);
+            gold = Number(gold || 0);
+            goldStash = Number(goldStash || 0);
+
+            if (network === "ban" || exp <= 1000) {
+              resolve(undefined);
+            } else {
+              resolve({
+                player: player.replace("u:", ""),
+                isCompleted: !!hash,
+                network,
+                exp,
+                gold: gold + goldStash,
+              });
+            }
+          }),
+      ),
+    );
+
+    playersData = playersData.concat(rawPlayerData.filter(Boolean));
+  }
+  nodeCache.set(NANOBROWSERQUEST_LEADERBOARD, playersData, EXPIRE_1H);
 };
 
 // Every 5 seconds
@@ -106,3 +93,7 @@ cron.schedule("*/5 * * * * *", async () => {
 cron.schedule("*/15 * * * *", async () => {
   getNanoBrowserQuestLeaderboard();
 });
+
+if (!nodeCache.get(NANOBROWSERQUEST_LEADERBOARD)) {
+  getNanoBrowserQuestLeaderboard();
+}

@@ -1,11 +1,13 @@
 import * as React from "react";
+
 import qs from "qs";
 
 import { isValidAccountAddress } from "components/utils";
 
+import { AccountInfoContext } from "./AccountInfo";
+
 import type { History } from "./AccountHistory";
 import type { HistoryFilters } from "pages/Account/History/Filters";
-import { AccountInfoContext } from "./AccountInfo";
 
 interface Return {
   sum: number;
@@ -25,7 +27,11 @@ export const AccountHistoryFilterContext = React.createContext<Return>({
   isError: false,
 });
 
-const Provider: React.FC = ({ children }) => {
+interface Props {
+  children: React.ReactNode;
+}
+
+const Provider: React.FC<Props> = ({ children }) => {
   const [history, setHistory] = React.useState([] as History[]);
   const [sum, setSum] = React.useState(0);
   const [filters, setFilters] = React.useState<HistoryFilters | null>(null);
@@ -48,8 +54,8 @@ const Provider: React.FC = ({ children }) => {
       const res = await fetch(`/api/transaction-filters${query}`);
       const { sum, data } = await res.json();
 
-      setHistory(data);
-      setSum(sum);
+      setHistory(data || []);
+      setSum(sum || 0);
     } catch (err) {
       setIsError(true);
     }
